@@ -1,0 +1,25 @@
+#!/bin/sh
+#
+# kvstore
+# https://github.com/syam44/kvstore
+#
+# Distributed under the GNU General Public License version 3
+# https://www.gnu.org/copyleft/gpl.html
+#
+# Authors: syam (aks92@free.fr)
+#
+# Description: Installer.
+#
+set -e
+
+if [ "$1" = "remove" ]; then
+  rm "/usr/local/bin/kvstore" 2>/dev/null || true
+elif [ "$1" = "install" ]; then
+  "$0" remove
+  cd "$(dirname "$(readlink -f "$0")")"
+  cp "./kvstore" "/usr/local/bin/"
+  chown root:root "/usr/local/bin/kvstore"
+  chmod 755 "/usr/local/bin/kvstore"
+else
+  echo "Usage: $(basename "$0") install | remove"
+fi

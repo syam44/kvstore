@@ -1,0 +1,128 @@
+#!/bin/sh
+#
+# kvstore
+# https://github.com/syam44/kvstore
+#
+# Distributed under the GNU General Public License version 3
+# https://www.gnu.org/copyleft/gpl.html
+#
+# Authors: syam (aks92@free.fr)
+#
+# Description: Ad-hoc (key,value) storage and query for shell usage.
+#
+
+# Check SQLite3 presence
+if [ "$(which sqlite3)" = "" ]; then
+  echo >&2 "SQLite3 not found. Please install it: aptitude install sqlite3"
+  exit 255
+fi
+
+# Usage help
+usage()
+{
+  echo >&2 "Usage: $(basename "$0") FILE [COMMANDS...]"
+  echo >&2 "    -f X       set field separator, default is |"
+  echo >&2 "    -kv        list all stored (key,value) pairs"
+  echo >&2 "    -k         list all stored keys"
+  echo >&2 "    -v         list all stored values"
+  echo >&2 "    -g K       get stored value for key K"
+  echo >&2 "    -m K       get stored (key,value) pairs for keys matching K (Unix glob syntax)"
+  echo >&2 "    -s K V     store value V for key K"
+  echo >&2 "    -d K       delete stored value for key K"
+  exit 2
+}
+
+# Error and usage message
+error()
+{
+  echo >&2 "ERROR: $@"
+  exit 2
+}
+
+# Extract dababase file name
+DB="$1"
+[ $# -ge 1 ] && shift
+
+SEPARATOR="|"
+SQL=""
+
+# SQLite wrapper
+add_sql()
+{
+  SQL="$SQL$@;"
+}
+
+escape()
+{
+  echo "$1" | sed "s@'@''@g"
+}
+
+# Create database if needed
+if [ ! -f "$DB" ] || [ ! -s "$DB" ]; then
+  if [ "$DB" = "" ] || [ -d "$DB" ]; then
+    usage
+  else
+    add_sql "CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT); CREATE INDEX IF NOT EXISTS kv_v ON kv (v)"
+  fi
+fi
+
+# Execute remaining commands
+while [ $# -ne 0 ]; do
+  case "$1" in
+    -f)
+      [ $# -ge 2 ] || error "-f requires an argument."
+      SEPARATOR="$2"
+      shift 2
+      ;;
+    -kv)
+      shift 1
+      add_sql "SELECT k,v FROM kv ORDER BY k"
+      ;;
+    -k)
+      shift 1
+      add_sql "SELECT k FROM kv ORDER BY k"
+      ;;
+    -v)
+      shift 1
+      add_sql "SELECT v FROM kv ORDER BY v"
+      ;;
+    -g)
+      [ $# -ge 2 ] || error "-g requires an argument."
+      KEY="$(escape "$2")"
+      shift 2
+      add_sql "SELECT v FROM kv WHERE (k='$KEY')"
+      ;;
+    -m)
+      [ $# -ge 2 ] || error "-m requires an argument."
+      KEY="$(escape "$2")"
+      shift 2
+      add_sql "SELECT k,v FROM kv WHERE (k GLOB '$KEY')"
+      ;;
+    -s)
+      [ $# -ge 3 ] || error "-s requires two arguments."
+      KEY="$(escape "$2")"
+      VALUE="$(escape "$3")"
+      shift 3
+      add_sql "REPLACE INTO kv(k,v) VALUES('$KEY','$VALUE')"
+      ;;
+    -d)
+      [ $# -ge 2 ] || error "-d requires an argument."
+      KEY="$(escape "$2")"
+      shift 2
+      add_sql "DELETE FROM kv WHERE (k='$KEY')"
+      ;;
+    *)
+      error "$1 is not a recognized command."
+      ;;
+  esac
+done
+
+if [ "$SQL" = "" ]; then
+  SQL=
+  sqlite3 -bail -noheader -batch -separator "$SEPARATOR" "$DB" "SELECT k,v FROM kv ORDER BY k;" >/dev/null
+else
+  sqlite3 -bail -noheader -batch -separator "$SEPARATOR" "$DB" "BEGIN;${SQL}COMMIT;"
+fi
+if [ "$?" != "0" ]; then
+  error "SQLite reported an error. Aborting."
+fi
